@@ -1,0 +1,38 @@
+# Render Blueprint — deploys the Prompt Kaizen backend as a free-tier
+# Web Service. After importing this repo into Render, fill in the four
+# `sync: false` secrets (MONGO_URI, JWT_SECRET, CLIENT_URL, ADMIN_PASSWORD)
+# in the dashboard and the service will go live.
+#
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: prompt-kaizen-backend
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: ADMIN_NAME
+        value: Admin
+      - key: ADMIN_EMAIL
+        value: Admin
+      - key: ADMIN_RESET_PASSWORD
+        value: "false"
+
+      # Secrets — set these in the Render dashboard after the service is created.
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CLIENT_URL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false

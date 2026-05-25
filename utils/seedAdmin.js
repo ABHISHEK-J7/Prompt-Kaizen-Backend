@@ -21,13 +21,14 @@ async function main() {
   if (user) {
     user.role = 'admin';
     user.name = name;
+    user.emailVerified = true;
     if (process.env.ADMIN_RESET_PASSWORD === 'true') {
       user.password = password;
     }
     await user.save();
-    console.log(`Admin updated: ${email} (role=admin)`);
+    console.log(`Admin updated: ${email} (role=admin, emailVerified=true)`);
   } else {
-    user = await User.create({ name, email, password, role: 'admin' });
+    user = await User.create({ name, email, password, role: 'admin', emailVerified: true });
     console.log(`Admin created: ${email} (password as configured)`);
   }
 

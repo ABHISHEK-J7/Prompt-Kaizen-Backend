@@ -3,6 +3,11 @@ const { analyzePrompt } = require('../utils/promptAnalyzer');
 const { generateImprovedPrompt } = require('../utils/generateImprovedPrompt');
 const { getScenario, SCENARIO_BANK } = require('../utils/scenarioBank');
 const { getDailyChallenge, istMidnightToday, isSameIstDay } = require('../utils/dailyChallenge');
+const {
+  consumeDictation,
+  getDictationStatus,
+  DICTATION_DAILY_LIMIT,
+} = require('../utils/dictation');
 
 const ALLOWED_CATEGORIES = [
   'Academic Writing',
@@ -93,7 +98,10 @@ const getDailyChallengeForToday = async (req, res) => {
 
 const analyze = async (req, res) => {
   try {
-    const { category, scenario, userPrompt, expectedOutputFormat, isDailyChallenge } = req.body;
+    const {
+      category, scenario, userPrompt, expectedOutputFormat,
+      isDailyChallenge, usedDictation,
+    } = req.body;
 
     if (!category || !scenario || !userPrompt || !expectedOutputFormat) {
       return res.status(400).json({
@@ -108,6 +116,25 @@ const analyze = async (req, res) => {
     }
     if (String(scenario).trim().length < 10) {
       return res.status(400).json({ message: 'Scenario is too short (min 10 characters).' });
+    }
+
+    // Enforce the per-day dictation quota BEFORE running the analyzer / writing
+    // an evaluation, so a blocked attempt doesn't consume any other resource.
+    // Only ticks the counter if the client actually used dictation for this
+    // submission — the user can keep typing prompts manually with no impact.
+    let dictation = getDictationStatus(req.user);
+    if (usedDictation === true) {
+      try {
+        dictation = consumeDictation(req.user);
+      } catch (e) {
+        if (e.code === 'DICTATION_LIMIT_REACHED') {
+          return res.status(429).json({
+            message: e.message,
+            dictation: getDictationStatus(req.user),
+          });
+        }
+        throw e;
+      }
     }
 
     const today = istMidnightToday();
@@ -152,18 +179,26 @@ const analyze = async (req, res) => {
       challengeDate: isDailyChallenge ? today : null,
     });
 
-    // Update challenge counters on the user document (best-effort).
+    // Update challenge counters on the user document (best-effort). The
+    // dictation counter was already mutated in-memory above; persist both
+    // together in a single save if either changed.
     if (isDailyChallenge) {
+      req.user.lastChallengeDate = today;
+      req.user.dailyChallengesCompleted = (req.user.dailyChallengesCompleted || 0) + 1;
+    }
+    if (isDailyChallenge || usedDictation === true) {
       try {
-        req.user.lastChallengeDate = today;
-        req.user.dailyChallengesCompleted = (req.user.dailyChallengesCompleted || 0) + 1;
         await req.user.save();
       } catch (e) {
-        console.error('challenge counter update failed:', e.message);
+        console.error('post-analyze user save failed:', e.message);
       }
     }
 
-    return res.status(201).json({ evaluation: doc, meta: analysis.meta });
+    return res.status(201).json({
+      evaluation: doc,
+      meta: analysis.meta,
+      dictation,
+    });
   } catch (err) {
     console.error('analyze error:', err);
     return res.status(500).json({ message: 'Failed to analyze prompt.' });

@@ -223,10 +223,10 @@ function analyzePrompt(input) {
   // full marks. An explicit `additionalRequirements` field also earns full.
   const constraintProvided = !!String(additionalRequirements).trim();
   let constraints = 0;
-  if (constraintProvided || constraintMatchCount >= 5) {
+  if (constraintProvided || constraintMatchCount >= 7) {
     constraints = 10;
     strengths.push('Includes constraints / requirements.');
-  } else if (constraintMatchCount === 3) {
+  } else if (constraintMatchCount === 4) {
     constraints = 6;
     strengths.push('Includes at least three constraint / requirement.');
     suggestions.push('Add more constraints (length, examples, sections...) for full credit.');

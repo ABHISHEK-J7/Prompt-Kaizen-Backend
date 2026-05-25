@@ -34,6 +34,23 @@ const userSchema = new mongoose.Schema(
     // Daily Challenge participation tracking.
     lastChallengeDate:        { type: Date,   default: null },
     dailyChallengesCompleted: { type: Number, default: 0 },
+
+    // Voice dictation quota — capped per IST day. Counter only ticks when an
+    // `/analyze` request actually arrives with `usedDictation: true` (so a
+    // user who taps the mic but never submits doesn't burn a use).
+    dictationsUsedToday: { type: Number, default: 0 },
+    dictationUsedDate:   { type: Date,   default: null },
+
+    // Email verification via one-time password (OTP).
+    // - `emailVerified` flips true after a successful verify-otp call.
+    // - `otpHash` is a bcrypt hash of the 6-digit code (never the plaintext).
+    // - `otpExpiresAt` is the wall-clock expiry; verification fails after it.
+    // - `otpAttempts` counts wrong tries against a single OTP; we invalidate
+    //   the OTP after 5 wrong attempts so a single code can't be brute-forced.
+    emailVerified: { type: Boolean, default: false },
+    otpHash:       { type: String, select: false, default: null },
+    otpExpiresAt:  { type: Date, default: null },
+    otpAttempts:   { type: Number, default: 0 },
   },
   { timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' } }
 );
@@ -52,6 +69,7 @@ userSchema.methods.matchPassword = async function (entered) {
 userSchema.methods.toJSON = function () {
   const obj = this.toObject();
   delete obj.password;
+  delete obj.otpHash;
   return obj;
 };
 

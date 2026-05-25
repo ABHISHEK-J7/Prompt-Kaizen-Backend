@@ -170,10 +170,16 @@ const analyze = async (req, res) => {
   }
 };
 
+// Cap a single user's history fetch at the most recent 500 evaluations.
+// In practice no UI surfaces beyond that, and capping prevents a heavy user
+// from pulling 10k+ docs in a single request.
+const USER_HISTORY_LIMIT = 500;
+
 const history = async (req, res) => {
   try {
     const items = await PromptEvaluation.find({ userId: req.user._id })
       .sort({ createdAt: -1 })
+      .limit(USER_HISTORY_LIMIT)
       .lean();
     return res.json({ items });
   } catch (err) {

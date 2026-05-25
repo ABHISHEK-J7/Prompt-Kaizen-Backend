@@ -2,16 +2,32 @@ const PromptEvaluation = require('../models/PromptEvaluation');
 const { evaluateBadges } = require('../utils/badges');
 const { istMidnightToday, isSameIstDay } = require('../utils/dailyChallenge');
 
+// Cap the dashboard/badge aggregates at the most recent N evaluations. Every
+// realistic user is well under this; users above it see aggregates computed
+// from their last DASHBOARD_AGG_LIMIT prompts (Total stays exact via
+// countDocuments). Keeps response size + per-request memory bounded.
+const DASHBOARD_AGG_LIMIT = 500;
+
 const stats = async (req, res) => {
   try {
     const userId = req.user._id;
-    const items = await PromptEvaluation.find({ userId }).sort({ createdAt: 1 }).lean();
+    const [total, latest] = await Promise.all([
+      PromptEvaluation.countDocuments({ userId }),
+      PromptEvaluation.find({ userId })
+        .sort({ createdAt: -1 })
+        .limit(DASHBOARD_AGG_LIMIT)
+        .lean(),
+    ]);
+    // Chart code below expects ascending-by-date order.
+    const items = latest.slice().reverse();
 
-    const total = items.length;
+    // Aggregates compute over the fetched sample (most-recent up to
+    // DASHBOARD_AGG_LIMIT). `total` stays accurate via countDocuments above.
+    const sampleCount = items.length;
     const scores = items.map((i) => i.overallScore || 0);
-    const average = total ? Math.round((scores.reduce((a, b) => a + b, 0) / total) * 10) / 10 : 0;
-    const best   = total ? Math.max(...scores) : 0;
-    const lowest = total ? Math.min(...scores) : 0;
+    const average = sampleCount ? Math.round((scores.reduce((a, b) => a + b, 0) / sampleCount) * 10) / 10 : 0;
+    const best    = sampleCount ? Math.max(...scores) : 0;
+    const lowest  = sampleCount ? Math.min(...scores) : 0;
 
     // Daily streak + freeze inventory maintained by authMiddleware.
     const dailyStreak     = req.user?.dailyStreak     || 0;
@@ -31,10 +47,10 @@ const stats = async (req, res) => {
       clarity: 0, context: 0, roleAssignment: 0, taskDefinition: 0, inputParameters: 0,
       outputFormat: 0, constraints: 0, tone: 0, relevance: 0, grammarStructure: 0,
     };
-    if (total) {
+    if (sampleCount) {
       for (const k of Object.keys(parameterAverages)) {
         const sum = items.reduce((acc, it) => acc + ((it.scores && it.scores[k]) || 0), 0);
-        parameterAverages[k] = Math.round((sum / total) * 10) / 10;
+        parameterAverages[k] = Math.round((sum / sampleCount) * 10) / 10;
       }
     }
 
@@ -79,9 +95,14 @@ const stats = async (req, res) => {
 const badges = async (req, res) => {
   try {
     const userId = req.user._id;
-    const items = await PromptEvaluation.find({ userId }, 'overallScore category').lean();
+    const [totalPrompts, items] = await Promise.all([
+      PromptEvaluation.countDocuments({ userId }),
+      PromptEvaluation.find({ userId }, 'overallScore category')
+        .sort({ createdAt: -1 })
+        .limit(DASHBOARD_AGG_LIMIT)
+        .lean(),
+    ]);
 
-    const totalPrompts = items.length;
     const distinctCategories = new Set(items.map((i) => i.category)).size;
     const bestScore = items.length ? Math.max(...items.map((i) => i.overallScore || 0)) : 0;
     const bestDailyStreak = req.user?.bestDailyStreak || 0;

@@ -171,7 +171,19 @@ function analyzePrompt(input) {
     suggestions.push('Spell out the exact deliverable (what to produce, for whom, why).');
   }
 
-  // 5) Input Parameters (15) — audience + additional requirements + scenario specificity
+  // Detect constraint / "specifics" keywords inside the prompt text once,
+  // so Input Parameters, Constraints, and other rules can award credit when
+  // those details are written into the prompt itself (rather than carried in
+  // separate form fields that the current frontend no longer collects).
+  const constraintMatches = CONSTRAINT_KEYWORDS.filter((k) => promptLower.includes(k));
+  const constraintMatchCount = constraintMatches.length;
+  const specificsInPrompt = constraintMatchCount > 0;
+
+  // 5) Input Parameters (15) — audience + specifics + scenario specificity.
+  // A prompt that names its audience and lists details (word limit / examples
+  // / deadline / etc.) inside the text should reach the full 15 — the form
+  // fields (`targetAudience`, `additionalRequirements`) are still honored if
+  // an API caller supplies them directly.
   let inputs = 0;
   const audienceProvided = !!String(targetAudience).trim();
   const additionalProvided = !!String(additionalRequirements).trim();
@@ -183,49 +195,60 @@ function analyzePrompt(input) {
     missing.push('Target Audience');
     suggestions.push('Mention the target audience (e.g., students, HR, developers).');
   }
-  if (additionalProvided) inputs += 5;
+  if (additionalProvided || specificsInPrompt) inputs += 5;
   else suggestions.push('Add specifics like word limit, examples, deadline or language.');
 
-  if (wordCount >= 20) inputs += 4;
+  if (wordCount >= 30) inputs += 4;
   inputs = Math.min(15, inputs);
   if (inputs >= 10) strengths.push('Provides useful input parameters / audience info.');
   else weaknesses.push('Important input parameters are missing.');
 
-  // 6) Output Format (10)
+  // 6) Output Format (10). Full marks if the format is named explicitly,
+  // either via the dropdown or anywhere inside the prompt text.
   const formatProvided = !!String(expectedOutputFormat).trim();
   const formatMentioned =
     formatProvided ||
     FORMAT_KEYWORDS.some((k) => promptLower.includes(k));
   let outputFormat = 0;
   if (formatMentioned) {
-    outputFormat = formatProvided ? 10 : 7;
+    outputFormat = 10;
     strengths.push('Specifies an output format.');
   } else {
     missing.push('Expected Output Format');
     suggestions.push('State the format clearly (e.g., email, table, bullet points).');
   }
 
-  // 7) Constraints (10)
+  // 7) Constraints (10). Tiered by how many distinct constraint keywords show
+  // up in the prompt — a single mention is partial credit, two or more is
+  // full marks. An explicit `additionalRequirements` field also earns full.
   const constraintProvided = !!String(additionalRequirements).trim();
-  const constraintMentioned =
-    constraintProvided ||
-    CONSTRAINT_KEYWORDS.some((k) => promptLower.includes(k));
   let constraints = 0;
-  if (constraintMentioned) {
-    constraints = constraintProvided ? 10 : 6;
+  if (constraintProvided || constraintMatchCount >= 5) {
+    constraints = 10;
     strengths.push('Includes constraints / requirements.');
-  } else {
+  } else if (constraintMatchCount === 3) {
+    constraints = 6;
+    strengths.push('Includes at least three constraint / requirement.');
+    suggestions.push('Add more constraints (length, examples, sections...) for full credit.');
+  }else if (constraintMatchCount === 1) {
+    constraints = 3;
+    strengths.push('Includes at least one constraint / requirement.');
+    suggestions.push('Add more constraints (length, examples, sections...) for full credit.');
+  }
+   else {
     missing.push('Constraints');
     suggestions.push('Add constraints such as word limit, sections, or tone limits.');
   }
 
-  // 8) Tone (5)
+  // 8) Tone (5). Any tone keyword in the prompt text earns full marks — the
+  // earlier "3 if only mentioned in text" penalty was a relic of the removed
+  // tone form field.
   const toneProvided = !!String(tone).trim();
   const toneMentioned =
     toneProvided || TONE_KEYWORDS.some((k) => promptLower.includes(k));
   let toneScore = 0;
   if (toneMentioned) {
-    toneScore = toneProvided ? 5 : 3;
+    toneScore = 5;
     strengths.push('Tone is specified.');
   } else {
     missing.push('Tone');
@@ -252,7 +275,7 @@ function analyzePrompt(input) {
   if (wordCount >= 15) grammar += 1;
   grammar = Math.min(5, grammar);
   if (grammar >= 4) strengths.push('Good grammar and structure.');
-  else if (grammar <= 2) {
+  else if (grammar <= 3) {
     weaknesses.push('Grammar or structure could be improved.');
     suggestions.push('Use proper capitalization, punctuation, and multiple sentences.');
   }

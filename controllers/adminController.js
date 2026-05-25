@@ -3,12 +3,25 @@ const User = require('../models/User');
 const PromptEvaluation = require('../models/PromptEvaluation');
 const ContestSubmission = require('../models/ContestSubmission');
 
+// Safety caps for unbounded admin reads. Aggregations would be cleaner long
+// term, but capping the find() result preserves the current response shape
+// (no frontend changes needed) while preventing a single request from sweeping
+// hundreds of thousands of docs as the platform grows.
+const ADMIN_STATS_PROMPT_SAMPLE = 10000;
+const ADMIN_LIST_LIMIT = 1000;
+
 const stats = async (req, res) => {
   try {
     const [totalUsers, totalPrompts, all] = await Promise.all([
       User.countDocuments(),
       PromptEvaluation.countDocuments(),
-      PromptEvaluation.find({}, 'overallScore category createdAt').lean(),
+      // Sample the most recent N prompts for the platform-wide aggregates
+      // shown on the admin dashboard. Average + per-category counts are
+      // representative; for an exact full-history total, use countDocuments.
+      PromptEvaluation.find({}, 'overallScore category createdAt')
+        .sort({ createdAt: -1 })
+        .limit(ADMIN_STATS_PROMPT_SAMPLE)
+        .lean(),
     ]);
 
     const averagePlatformScore = all.length
@@ -48,7 +61,11 @@ const stats = async (req, res) => {
 
 const listUsers = async (req, res) => {
   try {
-    const users = await User.find().sort({ createdAt: -1 }).select('-password').lean();
+    const users = await User.find()
+      .sort({ createdAt: -1 })
+      .limit(ADMIN_LIST_LIMIT)
+      .select('-password')
+      .lean();
     return res.json({ users });
   } catch (err) {
     console.error('admin listUsers error:', err);
@@ -60,6 +77,7 @@ const listPrompts = async (req, res) => {
   try {
     const prompts = await PromptEvaluation.find()
       .sort({ createdAt: -1 })
+      .limit(ADMIN_LIST_LIMIT)
       .populate('userId', 'name email')
       .lean();
     return res.json({ prompts });

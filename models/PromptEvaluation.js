@@ -42,4 +42,11 @@ const promptEvaluationSchema = new mongoose.Schema(
   { timestamps: { createdAt: 'createdAt', updatedAt: 'updatedAt' } }
 );
 
+// Covers user-scoped dashboard/history queries that filter by userId and
+// sort/filter by createdAt — the most common hot path on this collection.
+promptEvaluationSchema.index({ userId: 1, createdAt: -1 });
+
+// Covers admin "recent prompts" sort and any other global recency query.
+promptEvaluationSchema.index({ createdAt: -1 });
+
 module.exports = mongoose.model('PromptEvaluation', promptEvaluationSchema);
